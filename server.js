@@ -69,7 +69,11 @@ app.get("/", (req, res) => {
 // --- START: Syrja Address API ---
 
 // POST /api/claim - Lets a user claim a unique address (Async/Await version)
+// POST /api/claim - Lets a user claim a unique address (Async/Await version)
 app.post("/api/claim", async (req, res) => {
+    if (!db) {
+        return res.status(503).json({ error: "Server is initializing, please try again in a moment." });
+    }
     const { address, inviteCode } = req.body;
     if (!address || !inviteCode) {
         return res.status(400).json({ error: "Address and inviteCode are required." });
@@ -88,6 +92,9 @@ app.post("/api/claim", async (req, res) => {
 
 // GET /api/resolve/:address - Looks up an address and returns the invite code (Async/Await version)
 app.get("/api/resolve/:address", async (req, res) => {
+    if (!db) {
+        return res.status(503).json({ error: "Server is initializing, please try again in a moment." });
+    }
     const address = req.params.address;
     try {
         const sql = `SELECT inviteCode FROM addresses WHERE address = ?`;
