@@ -27,7 +27,7 @@ async function main() {
     });
 
     // --- 3. API Routes ---
-
+    console.log("Attempting to register API routes...");
     // Health check route
     app.get("/", (req, res) => {
       res.send("✅ Signaling server is running");
