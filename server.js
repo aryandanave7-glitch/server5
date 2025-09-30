@@ -5,8 +5,8 @@ const { open } = require('sqlite');
 const sqlite3 = require('sqlite3');
 const cors = require('cors');
 
-app.use(cors()); // Enable CORS for all API routes
 const app = express();
+app.use(cors()); // Enable CORS for all API routes
 app.use(express.json()); // Middleware to parse JSON bodies
 
 // --- START: Modern Database Setup ---
