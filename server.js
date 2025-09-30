@@ -1,8 +1,25 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
+app.use(express.json()); // Middleware to parse JSON bodies
+
+// --- START: Database Setup ---
+const db = new sqlite3.Database('./syrja.db', (err) => {
+  if (err) {
+    console.error("Error opening database " + err.message);
+  } else {
+    console.log("Database connected.");
+    db.run('CREATE TABLE IF NOT EXISTS addresses (address TEXT PRIMARY KEY, inviteCode TEXT NOT NULL)', (err) => {
+        if(err) console.error("Error creating table", err);
+        else console.log("Table 'addresses' is ready.");
+    });
+  }
+});
+// --- END: Database Setup ---
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" }
@@ -43,6 +60,47 @@ function isRateLimited(socket) {
 app.get("/", (req, res) => {
   res.send("✅ Signaling server is running");
 });
+
+// --- START: Syrja Address API ---
+
+// POST /api/claim - Lets a user claim a unique address
+app.post("/api/claim", (req, res) => {
+  const { address, inviteCode } = req.body;
+  if (!address || !inviteCode) {
+    return res.status(400).json({ error: "Address and inviteCode are required." });
+  }
+
+  const sql = `INSERT INTO addresses (address, inviteCode) VALUES (?, ?)`;
+  db.run(sql, [address, inviteCode], function(err) {
+    if (err) {
+      // 'SQLITE_CONSTRAINT' error means the address (PRIMARY KEY) is already taken
+      if (err.code === 'SQLITE_CONSTRAINT') {
+        return res.status(409).json({ error: "This address is already taken." });
+      }
+      return res.status(500).json({ error: "Database error claiming address." });
+    }
+    res.status(201).json({ success: true, message: "Address claimed successfully." });
+  });
+});
+
+// GET /api/resolve/:address - Looks up an address and returns the invite code
+app.get("/api/resolve/:address", (req, res) => {
+  const address = req.params.address;
+  const sql = `SELECT inviteCode FROM addresses WHERE address = ?`;
+  
+  db.get(sql, [address], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: "Database error resolving address." });
+    }
+    if (row) {
+      res.status(200).json({ success: true, inviteCode: row.inviteCode });
+    } else {
+      res.status(404).json({ error: "Address not found." });
+    }
+  });
+});
+
+// --- END: Syrja Address API ---
 
 // Map a user's permanent pubKey to their temporary socket.id
 const userSockets = {};
