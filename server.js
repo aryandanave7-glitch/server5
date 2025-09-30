@@ -1,24 +1,27 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const sqlite3 = require("sqlite3").verbose();
+const { open } = require('sqlite');
+const sqlite3 = require('sqlite3');
 
 const app = express();
 app.use(express.json()); // Middleware to parse JSON bodies
 
-// --- START: Database Setup ---
-const db = new sqlite3.Database('./syrja.db', (err) => {
-  if (err) {
-    console.error("Error opening database " + err.message);
-  } else {
-    console.log("Database connected.");
-    db.run('CREATE TABLE IF NOT EXISTS addresses (address TEXT PRIMARY KEY, inviteCode TEXT NOT NULL)', (err) => {
-        if(err) console.error("Error creating table", err);
-        else console.log("Table 'addresses' is ready.");
-    });
-  }
-});
-// --- END: Database Setup ---
+// --- START: Modern Database Setup ---
+let db;
+(async () => {
+    try {
+        db = await open({
+            filename: './syrja.db',
+            driver: sqlite3.Database
+        });
+        await db.run('CREATE TABLE IF NOT EXISTS addresses (address TEXT PRIMARY KEY, inviteCode TEXT NOT NULL)');
+        console.log("Database connected and table 'addresses' is ready.");
+    } catch (err) {
+        console.error("Database connection error: " + err.message);
+    }
+})();
+// --- END: Modern Database Setup ---
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -63,41 +66,38 @@ app.get("/", (req, res) => {
 
 // --- START: Syrja Address API ---
 
-// POST /api/claim - Lets a user claim a unique address
-app.post("/api/claim", (req, res) => {
-  const { address, inviteCode } = req.body;
-  if (!address || !inviteCode) {
-    return res.status(400).json({ error: "Address and inviteCode are required." });
-  }
-
-  const sql = `INSERT INTO addresses (address, inviteCode) VALUES (?, ?)`;
-  db.run(sql, [address, inviteCode], function(err) {
-    if (err) {
-      // 'SQLITE_CONSTRAINT' error means the address (PRIMARY KEY) is already taken
-      if (err.code === 'SQLITE_CONSTRAINT') {
-        return res.status(409).json({ error: "This address is already taken." });
-      }
-      return res.status(500).json({ error: "Database error claiming address." });
+// POST /api/claim - Lets a user claim a unique address (Async/Await version)
+app.post("/api/claim", async (req, res) => {
+    const { address, inviteCode } = req.body;
+    if (!address || !inviteCode) {
+        return res.status(400).json({ error: "Address and inviteCode are required." });
     }
-    res.status(201).json({ success: true, message: "Address claimed successfully." });
-  });
+    try {
+        const sql = `INSERT INTO addresses (address, inviteCode) VALUES (?, ?)`;
+        await db.run(sql, [address, inviteCode]);
+        res.status(201).json({ success: true, message: "Address claimed successfully." });
+    } catch (err) {
+        if (err.code === 'SQLITE_CONSTRAINT') {
+            return res.status(409).json({ error: "This address is already taken." });
+        }
+        res.status(500).json({ error: "Database error claiming address." });
+    }
 });
 
-// GET /api/resolve/:address - Looks up an address and returns the invite code
-app.get("/api/resolve/:address", (req, res) => {
-  const address = req.params.address;
-  const sql = `SELECT inviteCode FROM addresses WHERE address = ?`;
-  
-  db.get(sql, [address], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: "Database error resolving address." });
+// GET /api/resolve/:address - Looks up an address and returns the invite code (Async/Await version)
+app.get("/api/resolve/:address", async (req, res) => {
+    const address = req.params.address;
+    try {
+        const sql = `SELECT inviteCode FROM addresses WHERE address = ?`;
+        const row = await db.get(sql, [address]);
+        if (row) {
+            res.status(200).json({ success: true, inviteCode: row.inviteCode });
+        } else {
+            res.status(404).json({ error: "Address not found." });
+        }
+    } catch (err) {
+        res.status(500).json({ error: "Database error resolving address." });
     }
-    if (row) {
-      res.status(200).json({ success: true, inviteCode: row.inviteCode });
-    } else {
-      res.status(404).json({ error: "Address not found." });
-    }
-  });
 });
 
 // --- END: Syrja Address API ---
